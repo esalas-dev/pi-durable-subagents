@@ -1,5 +1,6 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { Actor } from "./requests.ts";
+import type { GateRecord, GateStatus, OutputContract, StructuredResult, TechnicalOutcome } from "./structured.ts";
 import { DomainError } from "./errors.ts";
 
 export type JobStatus = "queued" | "paused" | "provisioning" | "running" | "cancelling" | "completed" | "failed" | "interrupted" | "cancelled";
@@ -18,6 +19,7 @@ export type JobListView = {
   id: string; status: JobStatusPublic; internalStatus?: JobStatus; agent: JobAgentSnapshot; model: JobModel;
   thinkingLevel: ModelThinkingLevel; cwd: string; createdAt: number; startedAt?: number; updatedAt: number;
   finishedAt?: number; queuePosition?: number; durationMs?: number; hasResult: boolean; reviewStatus: ReviewState;
+  gatePhase?: GateStatus; gateCurrent?: string; gatePassed?: number; gateTotal?: number; technicalOutcome?: TechnicalOutcome;
   consumption: Readonly<ConsumptionState>; task?: string;
 };
 export type JobQueryView = JobListView & { task?: string; resultMeta?: Omit<JobResult, "finalResponse"> };
@@ -25,14 +27,15 @@ export type WaitResult = JobQueryView;
 export type JobAgentSnapshot = { name: string; description: string; systemPrompt: string; source: "personal" | "project"; filePath: string; tools: string[] };
 export type JobModel = { provider: string; modelId: string };
 export type JobResult = { finalResponse: string; durationMs: number; model: JobModel; status: "completed" | "failed" | "interrupted"; error?: string };
-export type ResolvedJobInput = { task: string; cwd: string; agent: JobAgentSnapshot; model: JobModel; thinkingLevel: ModelThinkingLevel };
+export type JobCompletion = JobResult & { structuredResult?: StructuredResult; gates?: GateRecord[]; technicalOutcome?: TechnicalOutcome };
+export type ResolvedJobInput = { task: string; cwd: string; agent: JobAgentSnapshot; model: JobModel; thinkingLevel: ModelThinkingLevel; outputContract?: OutputContract };
 export type JobView = { job: Readonly<JobRecord>; queuePosition?: number };
-export type ResultView = JobView & { result?: Readonly<JobResult> };
+export type ResultView = JobView & { result?: Readonly<JobCompletion> };
 export type JobControl = { pending: "cancel"; requestedAt: number; requestedBy: Actor; requestId: string };
 export type JobRecord = {
   id: string; status: JobStatus; task: string; cwd: string; createdAt: number; updatedAt: number; startedAt?: number; finishedAt?: number;
   agent: JobAgentSnapshot; model: JobModel; thinkingLevel: ModelThinkingLevel; conversationId?: number; submissionId?: number;
-  result?: JobResult; resultMeta?: Omit<JobResult, "finalResponse">; createdBy?: Actor; parentSessionId?: string; notified: boolean;
+  result?: JobResult; resultMeta?: Omit<JobResult, "finalResponse">; outputContract?: OutputContract; structuredResult?: StructuredResult; gates?: GateRecord[]; technicalOutcome?: TechnicalOutcome; createdBy?: Actor; parentSessionId?: string; notified: boolean;
   control?: JobControl; retryOf?: string; attemptNumber?: number; rootAttemptId?: string; queueOrdinal?: number; controlHistory?: import("./requests.ts").ControlEvent[];
 };
 

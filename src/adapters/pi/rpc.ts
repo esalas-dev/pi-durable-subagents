@@ -110,7 +110,7 @@ async function resultData(jobs: JobsService, request: RpcRequest<"result">): Pro
   const result = access.value.result;
   return { success: true, value: {
     job: projectJob(job.value),
-    result: { text: result.finalResponse, totalBytes: Buffer.byteLength(result.finalResponse, "utf8"), sha256: createHash("sha256").update(result.finalResponse, "utf8").digest("hex"), truncated: false, durationMs: result.durationMs, model: result.model, status: result.status },
+    result: { text: result.finalResponse, totalBytes: Buffer.byteLength(result.finalResponse, "utf8"), sha256: createHash("sha256").update(result.finalResponse, "utf8").digest("hex"), truncated: false, durationMs: result.durationMs, model: result.model, status: result.status, ...(result.structuredResult ? { structuredResult: result.structuredResult } : {}), ...(result.technicalOutcome ? { technicalOutcome: result.technicalOutcome } : {}) },
   } };
 }
 
@@ -148,7 +148,7 @@ async function perform(operation: RpcOperation, request: RpcRequest, options: Rp
       if (attempt.responded || !current(state)) throw new Error("RPC request expired");
       return input;
     };
-    const outcome = await jobs.start({ requestId: request.requestId, actor: { kind: "extension", id: request.callerId }, intent: { agent: spawn.agent, task: spawn.task, cwd: state.context.cwd } }, resolve);
+    const outcome = await jobs.start({ requestId: request.requestId, actor: { kind: "extension", id: request.callerId }, intent: { agent: spawn.agent, task: spawn.task, cwd: state.context.cwd, ...(spawn.outputContract === undefined ? {} : { outputContract: spawn.outputContract }) } }, resolve);
     return outcome.success ? { protocolVersion: 1, requestId: request.requestId, correlationId: request.correlationId, sessionId: state.sessionId, success: true, data: outcome.value } as RpcResponse : makeErrorResponse(operation, request.requestId, request.correlationId, state.sessionId, errorCode(outcome));
   }
   const control = params as RpcRequest<"control">["params"];

@@ -272,6 +272,10 @@ Pi Durable `1.0.1` no expone constrained sampling público en su contrato de con
 
 Schemas, corrección, gates, timeouts, señales, caídas y worktree simulado cumplen los criterios de aceptación sin convertir un gate técnico en aprobación humana.
 
+### Estado de aceptación
+
+**Fase 04: completada.** La aceptación TUI humana, la revisión independiente y las pruebas focales fueron confirmadas explícitamente por la persona responsable en esta sesión. La verificación local ejecutada aquí también fue correcta: `npm run check` y `npm test` (346/346). La fase 10 continúa bloqueada.
+
 ## Fase 05 — Grupos y join
 
 Spec normativa: [`05-grupos-join.md`](005-grupos-join/spec.md).

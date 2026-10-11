@@ -3,6 +3,7 @@ import type { ExtensionContext, ModelRuntime } from "@earendil-works/pi-coding-a
 import { discoverAgents, SUPPORTED_TOOLS, unsupportedTools, type AgentDefinition } from "../../agents.ts";
 import type { JobAgentSnapshot, ResolvedJobInput } from "../../domain/jobs.ts";
 import type { StartIntent } from "../../domain/requests.ts";
+import { validateOutputContract } from "../../domain/structured.ts";
 import type { createSubagentsWidget } from "./subagents-widget.ts";
 
 export type PiBindings = {
@@ -32,5 +33,6 @@ export async function resolveInput(ctx: ExtensionContext, models: ModelRuntime, 
   } else if (model && !models.getModel(model.provider, model.id)) throw new Error(`El modelo actual ${model.provider}/${model.id} no está disponible.`);
   if (!model) throw new Error("No hay un modelo seleccionado para el subagente.");
   const snapshot: JobAgentSnapshot = { name: agent.name, description: agent.description, systemPrompt: agent.systemPrompt, source: agent.source, filePath: agent.filePath, tools: agent.tools ?? [...SUPPORTED_TOOLS] };
-  return { task: intent.task, cwd: intent.cwd, agent: snapshot, model: { provider: model.provider, modelId: model.id }, thinkingLevel: thinking ?? "off" };
+  const outputContract = intent.outputContract === undefined ? undefined : validateOutputContract(intent.outputContract);
+  return { task: intent.task, cwd: intent.cwd, agent: snapshot, model: { provider: model.provider, modelId: model.id }, thinkingLevel: thinking ?? "off", ...(outputContract === undefined ? {} : { outputContract }) };
 }

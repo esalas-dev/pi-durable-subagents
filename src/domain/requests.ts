@@ -1,17 +1,18 @@
 import { createHash } from "node:crypto";
 import * as path from "node:path";
 import { DomainError } from "./errors.ts";
-import type { JobResult } from "./jobs.ts";
+import type { JobCompletion } from "./jobs.ts";
+import { validateOutputContract } from "./structured.ts";
 
 export type Actor = { kind: "human" | "model" | "extension" | "system"; id?: string };
 export type ParentAuthority = Readonly<{ sessionId: string; isActive(): boolean }>;
-export type StartIntent = { agent: string; task: string; cwd: string };
+export type StartIntent = { agent: string; task: string; cwd: string; outputContract?: unknown };
 export type StartRequest = { requestId: string; actor: Actor; intent: StartIntent };
 export type Clock = () => number;
 export type CreateId = () => string;
 export type AdmissionReceipt = { jobId: string; status: "queued"; agent: string };
 export type ConsumeRequest = { requestId: string; actor: Actor; consumer: string };
-export type ConsumeReceipt = { jobId: string; requestId: string; consumedAt: number; consumedBy: string; count: number; result: JobResult };
+export type ConsumeReceipt = { jobId: string; requestId: string; consumedAt: number; consumedBy: string; count: number; result: JobCompletion };
 export type ReviewReceipt = { jobId: string; requestId: string; status: "approved" | "rejected"; decidedAt: number; decidedBy?: string; decidedByActor?: Actor; reason?: string };
 export type ControlAction = "pause" | "resume" | "cancel" | "retry";
 export type ControlAdmission = { requireActiveConfirmation: boolean; activeCancellationConfirmed: boolean };
@@ -56,10 +57,11 @@ export function canonicalStart(request: StartRequest): { normalized: StartReques
     || typeof request.intent.task !== "string" || !request.intent.task.trim() || typeof request.intent.cwd !== "string"
     || !path.isAbsolute(request.intent.cwd)) throw new DomainError("INVALID_REQUEST");
   const actor: Actor = { kind: request.actor.kind, ...(request.actor.id === undefined ? {} : { id: request.actor.id }) };
+  const outputContract = request.intent.outputContract === undefined ? undefined : validateOutputContract(request.intent.outputContract);
   const normalized: StartRequest = {
     requestId: request.requestId,
     actor,
-    intent: { agent: request.intent.agent, task: request.intent.task.trim(), cwd: path.resolve(request.intent.cwd) },
+    intent: { agent: request.intent.agent, task: request.intent.task.trim(), cwd: path.resolve(request.intent.cwd), ...(outputContract === undefined ? {} : { outputContract }) },
   };
   const payload = canonicalJson({ version: 1, operation: "start", actor: normalized.actor, intent: normalized.intent });
   return {

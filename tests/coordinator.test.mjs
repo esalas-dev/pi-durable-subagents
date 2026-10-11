@@ -28,6 +28,35 @@ const deferred = () => { let resolve; const promise = new Promise(r => { resolve
   } finally { await f.close(); }
 });
 
+test('ejecuta gates tras validar y persiste el outcome técnico', async () => {
+  const f = await makeStoreFixture();
+  const contract = { schema: { type: 'object' }, schemaHash: 'hash', mode: 'strict-json', maxCorrectionTurns: 1, gates: [{ name: 'ok', command: [process.execPath, '-e', 'process.exit(0)'], timeoutSeconds: 5, expectedExitCodes: [0], shell: false }] };
+  try {
+    await f.seedJob({ ...input('gated', 'provisioning'), outputContract: contract }); await f.repository.markRunning('gated', 1, 1);
+    const c = createCoordinator({ repository: f.repository, execution: { wait: async job => ({ ...result(job), structuredResult: { value: {}, validatedAt: 1, schemaHash: 'hash' } }) }, maxConcurrency: 1, clock: () => 2, report: () => {} });
+    await c.recover();
+    for (let attempt = 0; attempt < 100 && (await f.repository.get('gated')).status === 'running'; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+    await c.drain();
+    const stored = await f.repository.get('gated');
+    assert.equal(stored.status, 'completed'); assert.equal(stored.technicalOutcome, 'gates_passed'); assert.equal(stored.gates[0].status, 'passed'); c.stop();
+  } finally { await f.close(); }
+});
+
+test('reconciliación de gate running no lo relanza y lo marca interrupted', async () => {
+  const f = await makeStoreFixture();
+  const contract = { schema: { type: 'object' }, schemaHash: 'hash', mode: 'strict-json', maxCorrectionTurns: 1, gates: [{ name: 'never-replay', command: [process.execPath, '-e', 'process.exit(99)'], timeoutSeconds: 5, expectedExitCodes: [0], shell: false }] };
+  const gate = { ...contract.gates[0], requestId: 'pi-agents:recover-gate:gate:0', status: 'running', startedAt: 1, stdout: { text: '', totalBytes: 0, sha256: 'x', truncated: false }, stderr: { text: '', totalBytes: 0, sha256: 'x', truncated: false } };
+  try {
+    await f.seedJob({ ...input('recover-gate', 'provisioning'), outputContract: contract, gates: [gate] }); await f.repository.markRunning('recover-gate', 1, 1);
+    const c = createCoordinator({ repository: f.repository, execution: { wait: async job => ({ ...result(job), structuredResult: { value: {}, validatedAt: 1, schemaHash: 'hash' } }) }, maxConcurrency: 1, clock: () => 2, report: error => { throw error; } });
+    await c.recover();
+    for (let attempt = 0; attempt < 100 && (await f.repository.get('recover-gate')).status === 'running'; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+    await c.drain();
+    const stored = await f.repository.get('recover-gate');
+    assert.equal(stored.status, 'interrupted'); assert.equal(stored.technicalOutcome, 'gate_interrupted'); assert.equal(stored.gates[0].status, 'interrupted'); c.stop();
+  } finally { await f.close(); }
+});
+
 test('recover provisioning reenvía la solicitud durable y running espera resultado', async () => {
   const f = await makeStoreFixture(); let submissions = 0; const execution = { create: async () => 1, submit: async job => { submissions++; return job.id === 'prov' ? 55 : 56; }, wait: async job => result(job) };
   try {
