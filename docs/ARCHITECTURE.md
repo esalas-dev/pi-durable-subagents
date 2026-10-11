@@ -70,6 +70,14 @@ Cada trabajo crea una conversación `ownerless` mediante `DurableExecution` con 
 
 No se utiliza la conversación reservada raíz y no se comparte transcript entre trabajos.
 
+## Salida estructurada y gates
+
+La admisión acepta opcionalmente `output_schema` y una lista acotada de gates. El contrato se normaliza y se conserva con hash canónico; se mantiene compatibilidad con jobs históricos del esquema 5 que no tienen contrato. El validador implementa un subconjunto explícito de JSON Schema, admite únicamente `$ref` locales y rechaza keywords o formas no soportadas.
+
+Tras `Submission.wait()`, el runtime extrae un único documento JSON estricto. Una salida inválida puede recibir un único turno de corrección; si continúa inválida se conserva la respuesta textual, se marca `output_invalid` y no se persiste un objeto estructurado parcial. Un resultado válido se guarda separado de `finalResponse`.
+
+Los gates se ejecutan solo después de validar, en orden, mediante `spawn(argv, { cwd, shell: false })`. El estado `pending`/`running` se escribe antes del efecto externo; cada cierre conserva estado, código/señal, captura limitada a 1 MiB por stream, tamaño total y SHA-256. Un gate fallido o interrumpido solo informa el outcome técnico (`gate_failed`/`gate_interrupted`): no aprueba, consume ni promociona el job. Al reabrir, un gate `running` se convierte en `interrupted` y no se relanza automáticamente. La exposición pública incluye fase, conteo, resultado validado y outcome, no streams completos.
+
 ## Máquina de estados
 
 ```text

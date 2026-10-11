@@ -1,6 +1,7 @@
 import { canonicalStart, type AdmissionReceipt, type ParentAuthority, type ResolveInput, type StartRequest } from "../domain/requests.ts";
 import type { ResolvedJobInput } from "../domain/jobs.ts";
 import { DomainError, failure, type Outcome } from "../domain/errors.ts";
+import { canonicalJson } from "../domain/requests.ts";
 import type { JobRepository } from "../infrastructure/durable/repository.ts";
 
 export type StartService = {
@@ -9,7 +10,8 @@ export type StartService = {
 };
 
 function matches(request: ReturnType<typeof canonicalStart>["normalized"], input: ResolvedJobInput): boolean {
-  return input.task === request.intent.task && input.cwd === request.intent.cwd && input.agent.name === request.intent.agent;
+  return input.task === request.intent.task && input.cwd === request.intent.cwd && input.agent.name === request.intent.agent
+    && canonicalJson(input.outputContract ?? null) === canonicalJson(request.intent.outputContract ?? null);
 }
 
 export function createStartService(repository: JobRepository, wake: () => void, report: (error: unknown) => void): StartService {

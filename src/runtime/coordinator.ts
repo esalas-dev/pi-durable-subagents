@@ -2,6 +2,7 @@ import type { Clock } from "../domain/requests.ts";
 import type { JobRecord } from "../domain/jobs.ts";
 import type { JobRepository } from "../infrastructure/durable/repository.ts";
 import type { DurableExecution } from "../infrastructure/durable/execution.ts";
+import { initialGateRecords, runGates } from "../infrastructure/gates.ts";
 
 export type Coordinator = { recover(): Promise<void>; reconcileControls(): Promise<void>; wake(): void; drain(): Promise<void>; stop(): void };
 export function createCoordinator(options: { repository: JobRepository; execution: DurableExecution; maxConcurrency: number; clock: Clock; onSettled?: (job: JobRecord, result: Awaited<ReturnType<DurableExecution["wait"]>>) => Promise<void>; report: (error: unknown) => void }): Coordinator {
@@ -15,7 +16,7 @@ export function createCoordinator(options: { repository: JobRepository; executio
   };
   const fail = async (job: JobRecord, error: unknown, g: number) => {
     if (!active(g)) return;
-    try { await options.repository.finish(job.id, { finalResponse: "", durationMs: 0, model: job.model, status: "failed", error: error instanceof Error ? error.message : String(error) }, options.clock()); }
+    try { await options.repository.finish(job.id, { finalResponse: "", durationMs: 0, model: job.model, status: "failed", error: error instanceof Error ? error.message : String(error), technicalOutcome: "agent_failed" }, options.clock()); }
     catch (finishError) { report(finishError); }
   };
   const monitor = (job: JobRecord) => {
@@ -24,7 +25,36 @@ export function createCoordinator(options: { repository: JobRepository; executio
     const promise = (async () => {
       let admitted = false;
       try {
-        const result = await options.execution.wait(job);
+        let result = await options.execution.wait(job);
+        if (!active(g)) return;
+        if (result.status === "completed" && result.structuredResult && job.outputContract?.gates.length) {
+          const runningGate = job.gates?.find(gate => gate.status === "running");
+          if (runningGate) {
+            const at = options.clock();
+            const gates = (job.gates ?? []).map(gate => gate.status === "running" ? { ...gate, status: "interrupted" as const, finishedAt: at, durationMs: Math.max(0, at - (gate.startedAt ?? at)), signal: "recovered" } : gate);
+            await options.repository.setGates(job.id, gates, at);
+            result = { ...result, status: "interrupted", error: "GATE_INTERRUPTED", gates, technicalOutcome: "gate_interrupted" };
+          } else {
+            const gates = initialGateRecords(job, job.outputContract.gates);
+            await options.repository.setGates(job.id, gates, options.clock());
+            const update = async (record: typeof gates[number]) => {
+              const index = gates.findIndex(candidate => candidate.requestId === record.requestId);
+              if (index >= 0) gates[index] = record;
+              await options.repository.setGates(job.id, gates, options.clock());
+            };
+            await runGates(job, job.outputContract.gates, options.clock, update);
+            const failed = gates.find(gate => gate.status !== "passed");
+            result = {
+              ...result,
+              gates,
+              ...(failed ? {
+                status: failed.status === "interrupted" ? "interrupted" as const : "failed" as const,
+                error: failed.status === "interrupted" ? "GATE_INTERRUPTED" : "GATE_FAILED",
+                technicalOutcome: failed.status === "interrupted" ? "gate_interrupted" as const : "gate_failed" as const,
+              } : { technicalOutcome: "gates_passed" as const }),
+            };
+          }
+        }
         if (!active(g)) return;
         admitted = true;
         await track((async () => {

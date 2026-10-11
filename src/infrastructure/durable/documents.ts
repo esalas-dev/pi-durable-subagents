@@ -1,6 +1,6 @@
 import { defineDoc, defineDocFamily } from "@earendil-works/pi-durable";
 import type { JsonValue } from "@earendil-works/chord";
-import type { JobRecord, JobResult, ReviewState, ConsumptionState } from "../../domain/jobs.ts";
+import type { JobCompletion, JobRecord, ReviewState, ConsumptionState } from "../../domain/jobs.ts";
 import type { ControlEvent } from "../../domain/requests.ts";
 
 export type StorageMeta = {
@@ -19,7 +19,7 @@ export type JobsIndex = {
   summaries: Record<string, { id: string; status: JobRecord["status"]; agent: string; createdAt: number; updatedAt: number; hasResult: boolean; notified: boolean; reviewStatus?: ReviewState }>;
 };
 export type JobDocument = JobRecord;
-export type JobResultDocument = JobResult;
+export type JobResultDocument = JobCompletion;
 export type JobReviewDocument = { status: ReviewState; decidedAt?: number; decidedBy?: string; decidedByActor?: { kind: "human" | "model"; id?: string }; reason?: string };
 export type JobConsumptionDocument = ConsumptionState;
 export type JobControlDocument = { events: ControlEvent[] };

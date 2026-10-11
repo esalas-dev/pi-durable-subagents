@@ -87,6 +87,8 @@ Ejemplo:
 
 El inicio agrega una entrada con un ID como `psa_7ab31c01db62`. `status` muestra estado, agente, modelo, cwd, duración y error. `result` añade además la respuesta final completa cuando está disponible; es una vista humana y no consume el resultado.
 
+El inicio también puede recibir `output_contract` con `output_schema` y gates. La salida debe ser un único JSON válido; se permite un turno de corrección. Los gates se ejecutan secuencialmente con `argv`, cwd explícito y `shell: false`, con timeout y captura acotada. `gate_failed`, `gate_interrupted` y `output_invalid` son outcomes técnicos: no sustituyen revisión humana ni promocionan resultados.
+
 Estados públicos:
 
 - `queued`

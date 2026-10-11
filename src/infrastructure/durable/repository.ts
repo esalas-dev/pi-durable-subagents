@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Context, JsonValue } from "@earendil-works/chord";
 import type { Session, Tx } from "@earendil-works/pi-durable";
-import type { ConsumptionState, JobRecord, JobResult, ResultAccess, ResultView, ReviewState } from "../../domain/jobs.ts";
+import type { ConsumptionState, JobCompletion, JobRecord, JobResult, ResultAccess, ResultView, ReviewState } from "../../domain/jobs.ts";
 import { assertJob, assertResult, publicStatus } from "../../domain/jobs.ts";
 import type { AdmissionReceipt, Clock, ControlAdmission, ParentAuthority, CreateId, ConsumeReceipt, ConsumeRequest, ControlReceipt, ControlRequest, RequestRecord, RetryReceipt, RetryRequest, ReviewReceipt, StartRequest } from "../../domain/requests.ts";
 import { assertControlRequest, canonicalJson } from "../../domain/requests.ts";
@@ -22,12 +22,13 @@ export type JobRepository = {
   retry(id: string, request: RetryRequest, at: number, parent?: ParentAuthority): Promise<RetryReceipt>;
   consume(id: string, request: ConsumeRequest, at: number): Promise<ConsumeReceipt>;
   readAuthorizedResult(id: string, access: ResultAccess): Promise<ResultView>;
-  result(id: string): Promise<JobResult | undefined>;
+  result(id: string): Promise<JobCompletion | undefined>;
   queuedPosition(id: string): Promise<number | undefined>;
   active(): Promise<JobRecord[]>;
   unnotified(): Promise<JobRecord[]>;
   markNotified(id: string): Promise<void>;
-  finish(id: string, result: JobResult, at: number): Promise<void>;
+  finish(id: string, result: JobCompletion, at: number): Promise<void>;
+  setGates(id: string, gates: import("../../domain/structured.ts").GateRecord[], at: number): Promise<void>;
   finishCancelled(id: string, detail: string, at: number): Promise<void>;
   markRunning(id: string, submissionId: number, at: number): Promise<void>;
   create(job: JobRecord, result?: JobResult): Promise<void>;
@@ -318,6 +319,7 @@ export function createJobRepository(session: Session, context: Context, clock: C
         const retryJob: JobRecord = {
           id: createId(), status: "queued", task: original.task, cwd: original.cwd,
           agent: plain(original.agent), model: plain(original.model), thinkingLevel: original.thinkingLevel,
+          ...(original.outputContract ? { outputContract: plain(original.outputContract) } : {}),
           createdAt: at, updatedAt: at, createdBy: plain(request.actor), ...(token ? { parentSessionId: token.sessionId } : {}), notified: false,
           retryOf: original.id, rootAttemptId: original.rootAttemptId ?? original.id, attemptNumber: (original.attemptNumber ?? 1) + 1,
         };
@@ -350,7 +352,7 @@ export function createJobRepository(session: Session, context: Context, clock: C
         const review = await tx.doc(JobReviewDocFamily, id, { status: "not_required" });
         if (review.status === "pending") throw new DomainError("RESULT_REVIEW_REQUIRED");
         if (review.status === "rejected") throw new DomainError("RESULT_REJECTED");
-        const body = await tx.doc(JobResultDocFamily, id, null as unknown as JsonValue) as JobResult | undefined;
+        const body = await tx.doc(JobResultDocFamily, id, null as unknown as JsonValue) as JobCompletion | undefined;
         if (!body || typeof body.finalResponse !== "string") throw new DomainError("RESULT_NOT_READY");
         if (existing) {
           receipt = plain(existing.receipt) as ConsumeReceipt;
@@ -377,7 +379,7 @@ export function createJobRepository(session: Session, context: Context, clock: C
         const review = await tx.doc(JobReviewDocFamily, id, { status: "not_required" });
         if (access.mode === "tool" && review.status === "pending") throw new DomainError("RESULT_REVIEW_REQUIRED");
         if (access.mode === "tool" && review.status === "rejected") throw new DomainError("RESULT_REJECTED");
-        const result = await tx.doc(JobResultDocFamily, id, null as unknown as JsonValue) as JobResult | undefined;
+        const result = await tx.doc(JobResultDocFamily, id, null as unknown as JsonValue) as JobCompletion | undefined;
         if (!result || typeof result.finalResponse !== "string") throw new DomainError("RESULT_NOT_READY");
         const position = index.order.indexOf(id);
         return { job: plain(job), queuePosition: position < 0 ? undefined : position + 1, result: plain(result) };
@@ -388,7 +390,7 @@ export function createJobRepository(session: Session, context: Context, clock: C
       if (!job) return undefined;
       const index = await readIndex();
       if (!index?.summaries[id]?.hasResult) return undefined;
-      const result = await session.snapshot(JobResultDocFamily, id, context) as JobResult | undefined;
+      const result = await session.snapshot(JobResultDocFamily, id, context) as JobCompletion | undefined;
       return structuredClone(result);
     },
     async queuedPosition(id) {
@@ -416,6 +418,14 @@ export function createJobRepository(session: Session, context: Context, clock: C
         await writeIndexFor(tx, job);
       }, context);
     },
+    async setGates(id, gates, at) {
+      await commit(async tx => {
+        const job = await tx.doc(JobDocFamily, id, null as unknown as JsonValue) as JobRecord | undefined;
+        if (!job || terminalStatuses.has(job.status)) return;
+        job.gates = structuredClone(gates); job.updatedAt = at;
+        await writeIndexFor(tx, job);
+      }, context);
+    },
     async finishCancelled(id, detail, at) {
       const result: JobResult = { finalResponse: "", durationMs: 0, model: { provider: "unknown", modelId: "unknown" }, status: "interrupted", error: detail };
       await commit(async tx => {
@@ -435,6 +445,9 @@ export function createJobRepository(session: Session, context: Context, clock: C
         const job = await tx.doc(JobDocFamily, id, null as unknown as JsonValue);
         if (!job || terminalStatuses.has(job.status)) return;
         job.status = result.status; job.resultMeta = { durationMs: result.durationMs, model: structuredClone(result.model), status: result.status, ...(result.error === undefined ? {} : { error: result.error }) };
+        if (result.structuredResult) job.structuredResult = structuredClone(result.structuredResult);
+        if (result.gates) job.gates = structuredClone(result.gates);
+        if (result.technicalOutcome) job.technicalOutcome = result.technicalOutcome;
         job.finishedAt = at; job.updatedAt = at;
         const body = await tx.doc(JobResultDocFamily, id, result); Object.assign(body, structuredClone(result));
         await writeIndexFor(tx, job, false, true);

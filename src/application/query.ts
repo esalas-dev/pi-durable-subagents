@@ -52,6 +52,13 @@ export function createQueryService(repository: JobRepository): QueryService {
       ...(job.finishedAt === undefined ? {} : { finishedAt: job.finishedAt }),
       ...(queuePosition === undefined ? {} : { queuePosition }),
       ...(duration(job) === undefined ? {} : { durationMs: duration(job) }),
+      ...(job.gates?.length ? {
+        gatePhase: job.gates.find(gate => gate.status === "running")?.status ?? job.gates.find(gate => gate.status === "pending")?.status ?? job.gates.at(-1)?.status,
+        ...(job.gates.find(gate => gate.status === "running") ? { gateCurrent: job.gates.find(gate => gate.status === "running")?.name } : {}),
+        gatePassed: job.gates.filter(gate => gate.status === "passed").length,
+        gateTotal: job.gates.length,
+      } : {}),
+      ...(job.technicalOutcome === undefined ? {} : { technicalOutcome: job.technicalOutcome }),
       hasResult: summary.hasResult,
       reviewStatus: reviewStatus(review ?? (summary.reviewStatus ? { status: summary.reviewStatus } : undefined)),
       consumption: consumptionState(consumption),
