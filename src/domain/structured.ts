@@ -62,15 +62,33 @@ function inspectSchema(schema: JsonValue, root = schema, depth = 0, seen = new S
   const node = schemaObject(schema);
   if (!node || seen.has(schema)) invalid("El schema contiene una forma no soportada o referencias cíclicas.");
   seen.add(schema);
+  const schemaTypes = new Set(["null", "boolean", "object", "array", "number", "integer", "string"]);
+  const nonNegativeInteger = (value: unknown) => typeof value === "number" && Number.isInteger(value) && value >= 0;
+  const finiteNumber = (value: unknown) => typeof value === "number" && Number.isFinite(value);
   for (const key of Object.keys(node)) {
     if (!supportedKeywords.has(key)) invalid(`Keyword de JSON Schema no soportada: ${key}`);
     const value = node[key];
-    if (key === "$ref") {
+    if (["$schema", "$id", "description", "title", "$ref"].includes(key) && typeof value !== "string") invalid(`El campo ${key} no es válido.`);
+    if (["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"].includes(key) && !finiteNumber(value)) invalid(`El campo ${key} no es válido.`);
+    if (["minLength", "maxLength", "minItems", "maxItems", "minProperties", "maxProperties"].includes(key) && !nonNegativeInteger(value)) invalid(`El campo ${key} no es válido.`);
+    if (key === "type") {
+      const types = Array.isArray(value) ? value : [value];
+      if (types.length === 0 || types.some(type => typeof type !== "string" || !schemaTypes.has(type)) || new Set(types).size !== types.length) invalid("El campo type no es válido.");
+    } else if (key === "enum") {
+      if (!Array.isArray(value) || value.length === 0 || value.some(item => !json(item))) invalid("El campo enum no es válido.");
+    } else if (key === "required") {
+      if (!Array.isArray(value) || value.some(name => typeof name !== "string" || !name) || new Set(value).size !== value.length) invalid("El campo required no es válido.");
+    } else if (key === "pattern") {
+      if (typeof value !== "string") invalid("El campo pattern no es válido.");
+      try { new RegExp(value); } catch { invalid("El campo pattern no es válido."); }
+    } else if (key === "$ref") {
       if (typeof value !== "string" || (!value.startsWith("#/") && value !== "#") || !pointer(root, value)) invalid("Solo se admiten refs locales resolubles.");
     } else if (key === "properties" || key === "$defs") {
       const children = schemaObject(value);
       if (!children) invalid(`El campo ${key} no es válido.`);
       for (const child of Object.values(children)) inspectSchema(child, root, depth + 1, seen);
+    } else if (key === "additionalProperties") {
+      if (typeof value !== "boolean") inspectSchema(value, root, depth + 1, seen);
     } else if (["items", "not"].includes(key)) inspectSchema(value, root, depth + 1, seen);
     else if (["allOf", "anyOf", "oneOf"].includes(key)) {
       if (!Array.isArray(value) || value.length === 0) invalid(`El campo ${key} no es válido.`);
