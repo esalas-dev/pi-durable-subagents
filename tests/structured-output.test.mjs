@@ -17,6 +17,10 @@ test('valida contrato, límites y refs remotos', () => {
   assert.equal(valid.mode, 'strict-json');
   assert.throws(() => validateOutputContract({ output_schema: { $ref: 'https://example.test/schema' }, gates: [] }), error => error.error?.code === 'INVALID_REQUEST');
   assert.throws(() => validateOutputContract({ output_schema: {}, gates: [{ name: 'bad', command: [], timeout_seconds: 1, expected_exit_codes: [0] }] }), error => error.error?.code === 'INVALID_REQUEST');
+  assert.throws(() => validateOutputContract({ output_schema: { type: 'record' }, gates: [] }), error => error.error?.code === 'INVALID_REQUEST');
+  assert.throws(() => validateOutputContract({ output_schema: { pattern: '[' }, gates: [] }), error => error.error?.code === 'INVALID_REQUEST');
+  assert.throws(() => validateOutputContract({ output_schema: { required: ['id', 'id'] }, gates: [] }), error => error.error?.code === 'INVALID_REQUEST');
+  assert.throws(() => validateOutputContract({ output_schema: { additionalProperties: 'yes' }, gates: [] }), error => error.error?.code === 'INVALID_REQUEST');
 });
 
 test('valida payload contra schema y permite refs locales', () => {
